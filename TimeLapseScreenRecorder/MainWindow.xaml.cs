@@ -21,6 +21,11 @@ namespace TimeLapseScreenRecorder
             InitializeComponent();
             Loaded += MainWindow_Loaded;
             _captureTimer.Tick += CaptureTimer_Tick;
+
+            CaptureFormatComboBox.ItemsSource = new[] { "PNG", "JPG", "BMP" };
+            CaptureQualityComboBox.ItemsSource = new[] { "低质量(50)", "中等质量(75)", "高质量(90)", "极高质量(100)" };
+            CaptureFormatComboBox.SelectedIndex = 0;
+            CaptureQualityComboBox.SelectedIndex = 2;
             CaptureIntervalText.Text = "10";
             VideoFpsText.Text = "10";
             StopCaptureButton.IsEnabled = false;
@@ -136,12 +141,29 @@ namespace TimeLapseScreenRecorder
             {
                 using var bitmap = new Bitmap(screen.Bounds.Width, screen.Bounds.Height, PixelFormat.Format32bppArgb);
                 using var graphics = Graphics.FromImage(bitmap);
-
                 graphics.CopyFromScreen(screen.Bounds.Left, screen.Bounds.Top, 0, 0, screen.Bounds.Size, CopyPixelOperation.SourceCopy);
 
-                var fileName = $"{DateTime.Now:yyyyMMdd_HHmmssfff}.png";
+                var selectedFormat = CaptureFormatComboBox.SelectedItem?.ToString() ?? "PNG";
+                var extension = selectedFormat.ToUpperInvariant() switch
+                {
+                    "PNG" => ".png",
+                    "JPG" => ".jpg",
+                    "BMP" => ".bmp",
+                    _ => ".png"
+                };
+
+                var fileName = $"{DateTime.Now:yyyyMMdd_HHmmssfff}{extension}";
                 var filePath = Path.Combine(folder, fileName);
-                bitmap.Save(filePath, ImageFormat.Png);
+
+                var qualityValue = GetCaptureQuality();
+                if (selectedFormat.Equals("JPG", StringComparison.OrdinalIgnoreCase))
+                {
+                    SaveJpeg(bitmap, filePath, qualityValue);
+                }
+                else
+                {
+                    bitmap.Save(filePath, GetImageFormat(selectedFormat));
+                }
 
                 CaptureLogText.AppendText($"已保存：{filePath}\n");
             }
@@ -149,6 +171,45 @@ namespace TimeLapseScreenRecorder
             {
                 CaptureLogText.AppendText($"截屏失败：{ex.Message}\n");
             }
+        }
+
+        private int GetCaptureQuality()
+        {
+            var selected = CaptureQualityComboBox.SelectedItem?.ToString();
+            return selected switch
+            {
+                "低质量(50)" => 50,
+                "中等质量(75)" => 75,
+                "高质量(90)" => 90,
+                "极高质量(100)" => 100,
+                _ => 90
+            };
+        }
+
+        private static ImageFormat GetImageFormat(string formatName)
+        {
+            return formatName.ToUpperInvariant() switch
+            {
+                "PNG" => ImageFormat.Png,
+                "JPG" => ImageFormat.Jpeg,
+                "BMP" => ImageFormat.Bmp,
+                _ => ImageFormat.Png
+            };
+        }
+
+        private static void SaveJpeg(Bitmap bitmap, string filePath, int quality)
+        {
+            var qualityParam = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
+            var encoderParams = new EncoderParameters(1)
+            {
+                Param = new[] { qualityParam }
+            };
+
+            var codecInfo = ImageCodecInfo.GetImageEncoders()
+                .FirstOrDefault(codec => codec.FormatID == ImageFormat.Jpeg.Guid) ??
+                ImageCodecInfo.GetImageEncoders().First();
+
+            bitmap.Save(filePath, codecInfo, encoderParams);
         }
 
         private void ChooseDedupeFolderButton_Click(object sender, RoutedEventArgs e)
@@ -310,68 +371,106 @@ namespace TimeLapseScreenRecorder
 
         private void ChooseOutputFileButton_Click(object sender, RoutedEventArgs e)
         {
+            var defaultFileName = string.IsNullOrWhiteSpace(VideoOutputText.Text)
+                ? "timelapse.mp4"
+                : VideoOutputText.Text.Trim();
+
             var dialog = new Microsoft.Win32.SaveFileDialog
             {
                 Filter = "MP4 视频|*.mp4|AVI 视频|*.avi|MKV 视频|*.mkv",
                 DefaultExt = ".mp4",
-                FileName = "timelapse.mp4"
+                FileName = defaultFileName
             };
 
             if (dialog.ShowDialog() == true)
             {
-                VideoOutputText.Text = dialog.FileName;
+                VideoOutputText.Text = Path.GetFileName(dialog.FileName);
+                VideoOutputDirectoryText.Text = Path.GetDirectoryName(dialog.FileName) ?? string.Empty;
+                VideoLogText.AppendText($"已设置输出文件：{dialog.FileName}\n");
+            }
+        }
+
+        private void ChooseOutputDirectoryButton_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new FolderBrowserDialog
+            {
+                Description = "选择输出视频目录",
+                ShowNewFolderButton = true
+            };
+
+            if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+            {
+                VideoOutputDirectoryText.Text = dialog.SelectedPath;
+                if (string.IsNullOrWhiteSpace(VideoOutputText.Text))
+                {
+                    VideoOutputText.Text = "timelapse.mp4";
+                }
+                VideoLogText.AppendText($"已选择输出目录：{dialog.SelectedPath}\n");
             }
         }
 
         private void BuildVideoButton_Click(object sender, RoutedEventArgs e)
         {
+            VideoLogText.AppendText("开始导出视频...\n");
+
             var folder = VideoFolderText.Text.Trim();
             if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
             {
-                VideoLogText.AppendText("请先选择存在的图片文件夹。\n");
+                VideoLogText.AppendText("错误：请选择存在的图片文件夹。\n");
                 return;
             }
 
             if (!double.TryParse(VideoFpsText.Text, out var fps) || fps <= 0)
             {
-                VideoLogText.AppendText("视频帧率必须大于 0。\n");
+                VideoLogText.AppendText("错误：视频帧率必须大于 0。\n");
                 return;
             }
 
             var files = GetSupportedImageFiles(folder).OrderBy(file => file, StringComparer.OrdinalIgnoreCase).ToList();
             if (files.Count == 0)
             {
-                VideoLogText.AppendText("指定目录中没有可合成的视频图片。\n");
+                VideoLogText.AppendText("错误：指定目录中没有可合成的视频图片。\n");
                 return;
             }
 
-            var outputPath = VideoOutputText.Text.Trim();
-            if (string.IsNullOrWhiteSpace(outputPath))
+            var outputDirectory = VideoOutputDirectoryText.Text.Trim();
+            if (string.IsNullOrWhiteSpace(outputDirectory))
             {
-                outputPath = Path.Combine(folder, "timelapse.mp4");
+                outputDirectory = folder;
+                VideoLogText.AppendText("未选择输出目录，默认使用图片目录：" + outputDirectory + "\n");
             }
 
-            var outputDirectory = Path.GetDirectoryName(outputPath);
-            if (!string.IsNullOrWhiteSpace(outputDirectory))
+            var outputFileName = VideoOutputText.Text.Trim();
+            if (string.IsNullOrWhiteSpace(outputFileName))
             {
-                Directory.CreateDirectory(outputDirectory);
+                outputFileName = "timelapse.mp4";
+                VideoLogText.AppendText("未填写输出文件名，默认使用：timelapse.mp4\n");
             }
 
-            var extension = Path.GetExtension(files[0]).ToLowerInvariant();
+            var outputPath = Path.Combine(outputDirectory, outputFileName);
+            if (!Path.HasExtension(outputPath))
+            {
+                outputPath += ".mp4";
+            }
+
+            Directory.CreateDirectory(outputDirectory);
+
             var ffmpegPath = GetFfmpegExecutablePath();
             if (string.IsNullOrWhiteSpace(ffmpegPath))
             {
-                VideoLogText.AppendText("未找到 ffmpeg，可在系统 PATH 中或手动选择 ffmpeg.exe。\n");
+                VideoLogText.AppendText("错误：未找到 ffmpeg，可在系统 PATH 中或手动选择 ffmpeg.exe。\n");
                 return;
             }
 
-            var pattern = Path.Combine(folder, $"*{extension}");
-            var arguments = $"-y -framerate {fps:0.##} -pattern_type glob -i \"{pattern}\" -c:v libx264 -pix_fmt yuv420p \"{outputPath}\"";
+            var sequenceFolder = CreateImageSequence(files);
+            var arguments = $"-y -framerate {fps:0.##} -i \"{Path.Combine(sequenceFolder, "%04d.png")}\" -c:v libx264 -pix_fmt yuv420p \"{outputPath}\"";
 
             try
             {
-                VideoLogText.AppendText($"正在生成视频：{outputPath}\n");
-                VideoLogText.AppendText($"使用 ffmpeg：{ffmpegPath}\n");
+                VideoLogText.AppendText($"输出路径：{outputPath}\n");
+                VideoLogText.AppendText($"ffmpeg 路径：{ffmpegPath}\n");
+                VideoLogText.AppendText($"图片序列目录：{sequenceFolder}\n");
+                VideoLogText.AppendText("说明：已按顺序生成图片序列，确保所有帧都纳入视频而不是只保留最后一张。\n");
 
                 var processInfo = new ProcessStartInfo(ffmpegPath)
                 {
@@ -385,7 +484,7 @@ namespace TimeLapseScreenRecorder
                 using var process = Process.Start(processInfo);
                 if (process == null)
                 {
-                    VideoLogText.AppendText("启动 ffmpeg 失败。\n");
+                    VideoLogText.AppendText("错误：启动 ffmpeg 失败。\n");
                     return;
                 }
 
@@ -395,18 +494,35 @@ namespace TimeLapseScreenRecorder
 
                 if (process.ExitCode == 0)
                 {
-                    VideoLogText.AppendText($"视频已生成：{outputPath}\n");
-                    VideoLogText.AppendText($"共处理 {files.Count} 张图片。\n");
+                    VideoLogText.AppendText($"导出成功：{outputPath}\n");
+                    VideoLogText.AppendText($"已处理 {files.Count} 张图片。\n");
                 }
                 else
                 {
-                    VideoLogText.AppendText($"视频生成失败：{standardError}\n{standardOutput}\n");
+                    VideoLogText.AppendText("错误：视频生成失败。\n");
+                    VideoLogText.AppendText($"ffmpeg stderr：{standardError}\n");
+                    VideoLogText.AppendText($"ffmpeg stdout：{standardOutput}\n");
                 }
             }
             catch (Exception ex)
             {
-                VideoLogText.AppendText($"视频生成过程中出现异常：{ex.Message}\n");
+                VideoLogText.AppendText($"错误：视频生成过程中出现异常：{ex.Message}\n");
             }
+        }
+
+        private static string CreateImageSequence(IList<string> files)
+        {
+            var tempDirectory = Path.Combine(Path.GetTempPath(), "TimeLapseScreenRecorder", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDirectory);
+
+            for (var i = 0; i < files.Count; i++)
+            {
+                var source = files[i];
+                var target = Path.Combine(tempDirectory, $"{(i + 1):D4}.png");
+                File.Copy(source, target, overwrite: true);
+            }
+
+            return tempDirectory;
         }
 
         private string GetFfmpegExecutablePath()
