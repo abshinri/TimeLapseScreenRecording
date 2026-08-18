@@ -18,3 +18,5 @@ D:\Workspace\Chaos\TimeLapseScreenRecording.worktrees\delayed-screen-capture-sof
 D:\Workspace\Chaos\TimeLapseScreenRecording.worktrees\delayed-screen-capture-software\TimeLapseScreenRecorder\obj\Release\net6.0-windows\win-x64\TimeLapseScreenRecorder.pdb
 D:\Workspace\Chaos\TimeLapseScreenRecording.worktrees\delayed-screen-capture-software\TimeLapseScreenRecorder\obj\Release\net6.0-windows\win-x64\TimeLapseScreenRecorder.genruntimeconfig.cache
 D:\Workspace\Chaos\TimeLapseScreenRecording.worktrees\delayed-screen-capture-software\TimeLapseScreenRecorder\obj\Release\net6.0-windows\win-x64\ref\TimeLapseScreenRecorder.dll
+D:\Workspace\Chaos\TimeLapseScreenRecording.worktrees\delayed-screen-capture-software\TimeLapseScreenRecorder\obj\Release\net6.0-windows\win-x64\TimeLapseScreenRecorder_MarkupCompile.lref
+D:\Workspace\Chaos\TimeLapseScreenRecording.worktrees\delayed-screen-capture-software\TimeLapseScreenRecorder\obj\Release\net6.0-windows\win-x64\App.baml

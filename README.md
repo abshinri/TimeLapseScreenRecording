@@ -8,6 +8,8 @@
 
 ## 运行方式
 
+### 1）直接运行源码
+
 在 Windows 环境中执行：
 
 ```powershell
@@ -20,18 +22,61 @@ dotnet build
 dotnet run --project TimeLapseScreenRecorder\TimeLapseScreenRecorder.csproj
 ```
 
+### 2）编译成可直接执行的 exe
+
+在项目根目录执行：
+
+```powershell
+dotnet publish .\TimeLapseScreenRecorder\TimeLapseScreenRecorder.csproj -c Release -r win-x64 --self-contained false -p:UseAppHost=true -p:PublishSingleFile=false
+```
+
+生成的可执行文件在：
+
+```text
+TimeLapseScreenRecorder\bin\Release\net6.0-windows\win-x64\publish\TimeLapseScreenRecorder.exe
+```
+
+如果想输出单文件 exe，可使用：
+
+```powershell
+dotnet publish .\TimeLapseScreenRecorder\TimeLapseScreenRecorder.csproj -c Release -r win-x64 --self-contained false -p:UseAppHost=true -p:PublishSingleFile=true
+```
+
+### 3）双击运行
+
+发布完成后，直接双击下面这个程序即可启动：
+
+```text
+TimeLapseScreenRecorder\bin\Release\net6.0-windows\win-x64\publish\TimeLapseScreenRecorder.exe
+```
+
 ## 依赖说明
 
 - .NET 6 SDK（Windows 桌面 SDK）
-- ffmpeg（需要在 PATH 中可见，或者放置在常见安装路径中）
+- ffmpeg（可在 PATH 中自动搜索，也可在界面中手动选择 ffmpeg.exe）
 
-## 生成视频需要 ffmpeg
+## ffmpeg 配置
 
-如果系统未安装 ffmpeg，需自行安装并确保可执行文件在 PATH 中：
+程序支持手动指定 ffmpeg 路径：
+
+- 若“ffmpeg 路径”为空：程序会自动在当前环境变量 PATH 和常见目录中查找 ffmpeg
+- 若填写了路径：程序优先使用你指定的 ffmpeg.exe
+
+如果系统未安装 ffmpeg，可自行安装，然后在软件界面中手动选择：
 
 ```powershell
 ffmpeg -version
 ```
+
+## 图标说明
+
+程序已经配置了默认图标：
+
+```text
+TimeLapseScreenRecorder\assets\app.ico
+```
+
+该图标会在编译和发布时被打包进 exe 中。
 
 ## 功能说明
 

@@ -4,6 +4,7 @@ using System.Configuration;
 using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows;
 
 namespace TimeLapseScreenRecorder
 {
@@ -12,5 +13,12 @@ namespace TimeLapseScreenRecorder
     /// </summary>
     public partial class App : System.Windows.Application
     {
+        protected override void OnStartup(StartupEventArgs e)
+        {
+            base.OnStartup(e);
+
+            var mainWindow = new MainWindow();
+            mainWindow.Show();
+        }
     }
 }

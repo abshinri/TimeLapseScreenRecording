@@ -10,4 +10,8 @@
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Resource Include="assets\app.ico" />
+  </ItemGroup>
+
 </Project>
