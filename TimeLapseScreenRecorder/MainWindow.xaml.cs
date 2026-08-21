@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Threading;
@@ -20,6 +21,7 @@ namespace TimeLapseScreenRecorder
         {
             InitializeComponent();
             Loaded += MainWindow_Loaded;
+            Closing += MainWindow_Closing;
             _captureTimer.Tick += CaptureTimer_Tick;
 
             CaptureFormatComboBox.ItemsSource = new[] { "PNG", "JPG", "BMP" };
@@ -28,12 +30,19 @@ namespace TimeLapseScreenRecorder
             CaptureQualityComboBox.SelectedIndex = 2;
             CaptureIntervalText.Text = "10";
             VideoFpsText.Text = "10";
+            VideoOutputText.Text = "timelapse.mp4";
             StopCaptureButton.IsEnabled = false;
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             PopulateMonitorList();
+            ApplyConfig(LoadConfig());
+        }
+
+        private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+        {
+            SaveConfig();
         }
 
         private void PopulateMonitorList()
@@ -49,6 +58,133 @@ namespace TimeLapseScreenRecorder
             if (_screens.Count > 0)
             {
                 MonitorComboBox.SelectedIndex = 0;
+            }
+        }
+
+        private static string GetConfigPath()
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var directory = Path.Combine(localAppData, "TimeLapseScreenRecorder");
+            Directory.CreateDirectory(directory);
+            return Path.Combine(directory, "config.json");
+        }
+
+        private AppConfig LoadConfig()
+        {
+            var configPath = GetConfigPath();
+            if (!File.Exists(configPath))
+            {
+                return new AppConfig();
+            }
+
+            try
+            {
+                var json = File.ReadAllText(configPath);
+                return JsonSerializer.Deserialize<AppConfig>(json) ?? new AppConfig();
+            }
+            catch
+            {
+                return new AppConfig();
+            }
+        }
+
+        private void SaveConfig()
+        {
+            var config = BuildConfig();
+            var configPath = GetConfigPath();
+
+            try
+            {
+                var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(configPath, json);
+            }
+            catch
+            {
+                // Ignore persistence failures to prevent the app from crashing during shutdown.
+            }
+        }
+
+        private AppConfig BuildConfig()
+        {
+            return new AppConfig
+            {
+                CaptureFolder = CaptureFolderText.Text,
+                CaptureIntervalSeconds = CaptureIntervalText.Text,
+                CaptureFormat = CaptureFormatComboBox.SelectedItem?.ToString() ?? "PNG",
+                CaptureQuality = CaptureQualityComboBox.SelectedItem?.ToString() ?? "高质量(90)",
+                SelectedScreenIndex = MonitorComboBox.SelectedIndex,
+                DedupeFolder = DedupeFolderText.Text,
+                VideoFolder = VideoFolderText.Text,
+                VideoFps = VideoFpsText.Text,
+                VideoFfmpegPath = VideoFfmpegPathText.Text,
+                VideoOutputDirectory = VideoOutputDirectoryText.Text,
+                VideoOutputFileName = VideoOutputText.Text,
+            };
+        }
+
+        private void ApplyConfig(AppConfig config)
+        {
+            if (!string.IsNullOrWhiteSpace(config.CaptureFolder))
+            {
+                CaptureFolderText.Text = config.CaptureFolder;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.CaptureIntervalSeconds))
+            {
+                CaptureIntervalText.Text = config.CaptureIntervalSeconds;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.CaptureFormat))
+            {
+                var formatIndex = CaptureFormatComboBox.Items.IndexOf(config.CaptureFormat);
+                if (formatIndex >= 0)
+                {
+                    CaptureFormatComboBox.SelectedIndex = formatIndex;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.CaptureQuality))
+            {
+                var qualityIndex = CaptureQualityComboBox.Items.IndexOf(config.CaptureQuality);
+                if (qualityIndex >= 0)
+                {
+                    CaptureQualityComboBox.SelectedIndex = qualityIndex;
+                }
+            }
+
+            if (config.SelectedScreenIndex >= 0 && config.SelectedScreenIndex < MonitorComboBox.Items.Count)
+            {
+                MonitorComboBox.SelectedIndex = config.SelectedScreenIndex;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.DedupeFolder))
+            {
+                DedupeFolderText.Text = config.DedupeFolder;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.VideoFolder))
+            {
+                VideoFolderText.Text = config.VideoFolder;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.VideoFps))
+            {
+                VideoFpsText.Text = config.VideoFps;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.VideoFfmpegPath))
+            {
+                VideoFfmpegPathText.Text = config.VideoFfmpegPath;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.VideoOutputDirectory))
+            {
+                VideoOutputDirectoryText.Text = config.VideoOutputDirectory;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.VideoOutputFileName))
+            {
+                VideoOutputText.Text = config.VideoOutputFileName;
             }
         }
 
@@ -593,6 +729,21 @@ namespace TimeLapseScreenRecorder
 
             public string Name { get; }
             public Rectangle Bounds { get; }
+        }
+
+        private sealed class AppConfig
+        {
+            public string? CaptureFolder { get; set; }
+            public string? CaptureIntervalSeconds { get; set; }
+            public string? CaptureFormat { get; set; }
+            public string? CaptureQuality { get; set; }
+            public int SelectedScreenIndex { get; set; }
+            public string? DedupeFolder { get; set; }
+            public string? VideoFolder { get; set; }
+            public string? VideoFps { get; set; }
+            public string? VideoFfmpegPath { get; set; }
+            public string? VideoOutputDirectory { get; set; }
+            public string? VideoOutputFileName { get; set; }
         }
     }
 }
