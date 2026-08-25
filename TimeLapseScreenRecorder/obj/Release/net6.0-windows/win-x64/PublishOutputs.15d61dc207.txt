@@ -1,0 +1,2 @@
+D:\Workspace\Chaos\TimeLapseScreenRecording.worktrees\delayed-screen-capture-software\TimeLapseScreenRecorder\bin\Release\net6.0-windows\win-x64\publish\TimeLapseScreenRecorder.pdb
+D:\Workspace\Chaos\TimeLapseScreenRecording.worktrees\delayed-screen-capture-software\TimeLapseScreenRecorder\bin\Release\net6.0-windows\win-x64\publish\TimeLapseScreenRecorder.exe
