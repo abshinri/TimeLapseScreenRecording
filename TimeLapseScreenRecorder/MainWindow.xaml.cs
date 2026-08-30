@@ -16,6 +16,7 @@ namespace TimeLapseScreenRecorder
     {
         private readonly DispatcherTimer _captureTimer = new();
         private readonly List<ScreenInfo> _screens = new();
+        private Bitmap? _lastCapturedBitmap;
 
         public MainWindow()
         {
@@ -32,16 +33,35 @@ namespace TimeLapseScreenRecorder
             VideoFpsText.Text = "10";
             VideoOutputText.Text = "timelapse.mp4";
             StopCaptureButton.IsEnabled = false;
+            CaptureLogText.Visibility = Visibility.Collapsed;
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             PopulateMonitorList();
             ApplyConfig(LoadConfig());
+            UpdateCaptureLogVisibility();
+        }
+
+        private void ShowCaptureLogCheckBox_Checked(object sender, RoutedEventArgs e)
+        {
+            UpdateCaptureLogVisibility();
+        }
+
+        private void ShowCaptureLogCheckBox_Unchecked(object sender, RoutedEventArgs e)
+        {
+            UpdateCaptureLogVisibility();
+        }
+
+        private void UpdateCaptureLogVisibility()
+        {
+            CaptureLogText.Visibility = ShowCaptureLogCheckBox.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            _lastCapturedBitmap?.Dispose();
+            _lastCapturedBitmap = null;
             SaveConfig();
         }
 
@@ -112,6 +132,7 @@ namespace TimeLapseScreenRecorder
                 CaptureIntervalSeconds = CaptureIntervalText.Text,
                 CaptureFormat = CaptureFormatComboBox.SelectedItem?.ToString() ?? "PNG",
                 CaptureQuality = CaptureQualityComboBox.SelectedItem?.ToString() ?? "高质量(90)",
+                SkipUnchangedCapture = SkipUnchangedCaptureCheckBox.IsChecked == true,
                 SelectedScreenIndex = MonitorComboBox.SelectedIndex,
                 DedupeFolder = DedupeFolderText.Text,
                 VideoFolder = VideoFolderText.Text,
@@ -151,6 +172,8 @@ namespace TimeLapseScreenRecorder
                     CaptureQualityComboBox.SelectedIndex = qualityIndex;
                 }
             }
+
+            SkipUnchangedCaptureCheckBox.IsChecked = config.SkipUnchangedCapture;
 
             if (config.SelectedScreenIndex >= 0 && config.SelectedScreenIndex < MonitorComboBox.Items.Count)
             {
@@ -210,6 +233,11 @@ namespace TimeLapseScreenRecorder
             {
                 CaptureFolderText.Text = dialog.SelectedPath;
             }
+        }
+
+        private void OpenCaptureFolderButton_Click(object sender, RoutedEventArgs e)
+        {
+            OpenFolder(CaptureFolderText.Text, "保存文件夹为空，无法打开。");
         }
 
         private void StartCaptureButton_Click(object sender, RoutedEventArgs e)
@@ -279,6 +307,15 @@ namespace TimeLapseScreenRecorder
                 using var graphics = Graphics.FromImage(bitmap);
                 graphics.CopyFromScreen(screen.Bounds.Left, screen.Bounds.Top, 0, 0, screen.Bounds.Size, CopyPixelOperation.SourceCopy);
 
+                if (SkipUnchangedCaptureCheckBox.IsChecked == true && _lastCapturedBitmap != null)
+                {
+                    if (AreBitmapsEquivalent(_lastCapturedBitmap, bitmap))
+                    {
+                        CaptureLogText.AppendText("检测到屏幕无变化，跳过保存当前截图。\n");
+                        return;
+                    }
+                }
+
                 var selectedFormat = CaptureFormatComboBox.SelectedItem?.ToString() ?? "PNG";
                 var extension = selectedFormat.ToUpperInvariant() switch
                 {
@@ -300,6 +337,9 @@ namespace TimeLapseScreenRecorder
                 {
                     bitmap.Save(filePath, GetImageFormat(selectedFormat));
                 }
+
+                _lastCapturedBitmap?.Dispose();
+                _lastCapturedBitmap = new Bitmap(bitmap);
 
                 CaptureLogText.AppendText($"已保存：{filePath}\n");
             }
@@ -348,6 +388,67 @@ namespace TimeLapseScreenRecorder
             bitmap.Save(filePath, codecInfo, encoderParams);
         }
 
+        private static void OpenFolder(string folderPath, string emptyMessage)
+        {
+            if (string.IsNullOrWhiteSpace(folderPath))
+            {
+                System.Windows.MessageBox.Show(emptyMessage, "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            if (!Directory.Exists(folderPath))
+            {
+                System.Windows.MessageBox.Show("当前文件夹不存在：" + folderPath, "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = folderPath,
+                UseShellExecute = true
+            });
+        }
+
+        private static bool AreBitmapsEquivalent(Bitmap firstBitmap, Bitmap secondBitmap)
+        {
+            if (firstBitmap.Width != secondBitmap.Width || firstBitmap.Height != secondBitmap.Height)
+            {
+                return false;
+            }
+
+            var width = firstBitmap.Width;
+            var height = firstBitmap.Height;
+            var maxDimension = 64;
+            var resizeWidth = Math.Min(width, maxDimension);
+            var resizeHeight = Math.Min(height, maxDimension);
+
+            using var firstSample = new Bitmap(firstBitmap, resizeWidth, resizeHeight);
+            using var secondSample = new Bitmap(secondBitmap, resizeWidth, resizeHeight);
+
+            long totalDifference = 0;
+            long maxDifference = (long)(resizeWidth * resizeHeight * 3 * 255);
+
+            for (var y = 0; y < resizeHeight; y++)
+            {
+                for (var x = 0; x < resizeWidth; x++)
+                {
+                    var firstColor = firstSample.GetPixel(x, y);
+                    var secondColor = secondSample.GetPixel(x, y);
+                    totalDifference += Math.Abs(firstColor.R - secondColor.R);
+                    totalDifference += Math.Abs(firstColor.G - secondColor.G);
+                    totalDifference += Math.Abs(firstColor.B - secondColor.B);
+                }
+            }
+
+            if (maxDifference == 0)
+            {
+                return true;
+            }
+
+            var normalizedDifference = (double)totalDifference / maxDifference;
+            return normalizedDifference < 0.01;
+        }
+
         private void ChooseDedupeFolderButton_Click(object sender, RoutedEventArgs e)
         {
             var dialog = new FolderBrowserDialog
@@ -360,6 +461,11 @@ namespace TimeLapseScreenRecorder
             {
                 DedupeFolderText.Text = dialog.SelectedPath;
             }
+        }
+
+        private void OpenDedupeFolderButton_Click(object sender, RoutedEventArgs e)
+        {
+            OpenFolder(DedupeFolderText.Text, "图片文件夹为空，无法打开。");
         }
 
         private void RemoveDuplicatesButton_Click(object sender, RoutedEventArgs e)
@@ -487,6 +593,11 @@ namespace TimeLapseScreenRecorder
             {
                 VideoFolderText.Text = dialog.SelectedPath;
             }
+        }
+
+        private void OpenVideoFolderButton_Click(object sender, RoutedEventArgs e)
+        {
+            OpenFolder(VideoFolderText.Text, "图片文件夹为空，无法打开。");
         }
 
         private void ChooseFfmpegFileButton_Click(object sender, RoutedEventArgs e)
@@ -737,6 +848,7 @@ namespace TimeLapseScreenRecorder
             public string? CaptureIntervalSeconds { get; set; }
             public string? CaptureFormat { get; set; }
             public string? CaptureQuality { get; set; }
+            public bool SkipUnchangedCapture { get; set; } = true;
             public int SelectedScreenIndex { get; set; }
             public string? DedupeFolder { get; set; }
             public string? VideoFolder { get; set; }
