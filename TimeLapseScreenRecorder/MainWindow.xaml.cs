@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Forms;
@@ -14,9 +15,14 @@ namespace TimeLapseScreenRecorder
 {
     public partial class MainWindow : Window
     {
+        private const double IdleThresholdSeconds = 10;
         private readonly DispatcherTimer _captureTimer = new();
+        private readonly DispatcherTimer _focusTimer = new();
         private readonly List<ScreenInfo> _screens = new();
         private Bitmap? _lastCapturedBitmap;
+        private TimeSpan _focusElapsed = TimeSpan.Zero;
+        private DateTime _lastFocusTick;
+        private bool _focusTimerEnabled;
 
         public MainWindow()
         {
@@ -24,6 +30,8 @@ namespace TimeLapseScreenRecorder
             Loaded += MainWindow_Loaded;
             Closing += MainWindow_Closing;
             _captureTimer.Tick += CaptureTimer_Tick;
+            _focusTimer.Interval = TimeSpan.FromSeconds(1);
+            _focusTimer.Tick += FocusTimer_Tick;
 
             CaptureFormatComboBox.ItemsSource = new[] { "PNG", "JPG", "BMP" };
             CaptureQualityComboBox.ItemsSource = new[] { "低质量(50)", "中等质量(75)", "高质量(90)", "极高质量(100)" };
@@ -83,9 +91,116 @@ namespace TimeLapseScreenRecorder
 
         private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            _focusTimer.Stop();
+            _captureTimer.Stop();
             _lastCapturedBitmap?.Dispose();
             _lastCapturedBitmap = null;
             SaveConfig();
+        }
+
+        private void FocusTimerCheckBox_Checked(object sender, RoutedEventArgs e)
+        {
+            _focusTimerEnabled = true;
+            _lastFocusTick = DateTime.UtcNow;
+            _focusTimer.Start();
+            UpdateFocusTimerDisplay();
+        }
+
+        private void FocusTimerCheckBox_Unchecked(object sender, RoutedEventArgs e)
+        {
+            _focusTimerEnabled = false;
+            _focusTimer.Stop();
+            UpdateFocusTimerDisplay();
+        }
+
+        private void ResetFocusTimerButton_Click(object sender, RoutedEventArgs e)
+        {
+            _focusElapsed = TimeSpan.Zero;
+            _lastFocusTick = DateTime.UtcNow;
+            UpdateFocusTimerDisplay();
+        }
+
+        private void FocusTimer_Tick(object? sender, EventArgs e)
+        {
+            var now = DateTime.UtcNow;
+            var idle = GetSystemIdleTime();
+            if (idle.TotalSeconds < IdleThresholdSeconds)
+            {
+                _focusElapsed += now - _lastFocusTick;
+            }
+
+            _lastFocusTick = now;
+            UpdateFocusTimerDisplay();
+        }
+
+        private void UpdateFocusTimerDisplay()
+        {
+            FocusTimerText.Text = FormatElapsed(_focusElapsed);
+
+            if (!_focusTimerEnabled)
+            {
+                FocusTimerStatusText.Text = _focusElapsed > TimeSpan.Zero ? "已暂停" : "未启用";
+                FocusTimerStatusText.Foreground = _focusElapsed > TimeSpan.Zero
+                    ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE0, 0xB8, 0x6A))
+                    : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x6B, 0x76, 0x84));
+            }
+            else
+            {
+                var idle = GetSystemIdleTime();
+                var paused = idle.TotalSeconds >= IdleThresholdSeconds;
+                FocusTimerStatusText.Text = paused ? "计时中 · 暂停" : "计时中";
+                FocusTimerStatusText.Foreground = paused
+                    ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE0, 0xB8, 0x6A))
+                    : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x9D, 0xBB, 0xFF));
+            }
+        }
+
+        private static string FormatElapsed(TimeSpan t)
+        {
+            if (t.TotalDays >= 1)
+            {
+                return $"{(int)t.TotalDays}d {t.Hours:00}:{t.Minutes:00}:{t.Seconds:00}";
+            }
+
+            return $"{(int)t.TotalHours:00}:{t.Minutes:00}:{t.Seconds:00}";
+        }
+
+        private string GetFocusTimerSuffix()
+        {
+            if (!_focusTimerEnabled || _focusElapsed <= TimeSpan.Zero)
+            {
+                return string.Empty;
+            }
+
+            if (_focusElapsed.TotalDays >= 1)
+            {
+                return $"_{(int)_focusElapsed.TotalDays}d{_focusElapsed.Hours:00}h{_focusElapsed.Minutes:00}m{_focusElapsed.Seconds:00}s";
+            }
+
+            return $"_{_focusElapsed.Hours:00}h{_focusElapsed.Minutes:00}m{_focusElapsed.Seconds:00}s";
+        }
+
+        private static TimeSpan GetSystemIdleTime()
+        {
+            var lastInput = new LastInputInfo();
+            lastInput.CbSize = (uint)Marshal.SizeOf(lastInput);
+            if (!GetLastInputInfo(ref lastInput))
+            {
+                return TimeSpan.Zero;
+            }
+
+            var elapsed = unchecked((uint)Environment.TickCount - lastInput.DwTime);
+            return TimeSpan.FromMilliseconds(elapsed);
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool GetLastInputInfo(ref LastInputInfo plii);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct LastInputInfo
+        {
+            public uint CbSize;
+            public uint DwTime;
         }
 
         private void PopulateMonitorList()
@@ -285,6 +400,7 @@ namespace TimeLapseScreenRecorder
             _captureTimer.Interval = TimeSpan.FromSeconds(intervalSeconds);
             StartCaptureButton.IsEnabled = false;
             StopCaptureButton.IsEnabled = true;
+            SetCaptureConfigEnabled(false);
             CaptureCurrentScreen();
             _captureTimer.Start();
             CaptureLogText.AppendText($"已开始定时截屏：间隔 {intervalSeconds} 秒\n");
@@ -295,7 +411,26 @@ namespace TimeLapseScreenRecorder
             _captureTimer.Stop();
             StartCaptureButton.IsEnabled = true;
             StopCaptureButton.IsEnabled = false;
+            SetCaptureConfigEnabled(true);
             CaptureLogText.AppendText("已停止定时截屏。\n");
+        }
+
+        private void SetCaptureConfigEnabled(bool enabled)
+        {
+            CaptureFolderText.IsEnabled = enabled;
+            ChooseCaptureFolderButton.IsEnabled = enabled;
+            OpenCaptureFolderButton.IsEnabled = enabled;
+            MonitorComboBox.IsEnabled = enabled;
+            CaptureFormatComboBox.IsEnabled = enabled;
+            CaptureQualityComboBox.IsEnabled = enabled;
+            CaptureIntervalText.IsEnabled = enabled;
+            SkipUnchangedCaptureCheckBox.IsEnabled = enabled;
+        }
+
+        private void HelpButton_Click(object sender, RoutedEventArgs e)
+        {
+            var help = new HelpWindow { Owner = this };
+            help.ShowDialog();
         }
 
         private void CaptureTimer_Tick(object? sender, EventArgs e)
@@ -348,7 +483,7 @@ namespace TimeLapseScreenRecorder
                     _ => ".png"
                 };
 
-                var fileName = $"{DateTime.Now:yyyyMMdd_HHmmssfff}{extension}";
+                var fileName = $"{DateTime.Now:yyyyMMdd_HHmmssfff}{GetFocusTimerSuffix()}{extension}";
                 var filePath = Path.Combine(folder, fileName);
 
                 var qualityValue = GetCaptureQuality();

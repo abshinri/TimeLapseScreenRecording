@@ -8,6 +8,17 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
+
+    <!-- 右键属性 -> 详细信息 中显示的元数据 -->
+    <Product>桌面延时录像工具</Product>
+    <AssemblyTitle>桌面延时录像工具</AssemblyTitle>
+    <Description>定时截图、图片去重、生成延时视频的桌面工具</Description>
+    <Company>ABShinri</Company>
+    <Authors>ABShinri</Authors>
+    <Copyright>Copyright © 2026 ABShinri</Copyright>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
   </PropertyGroup>
 
   <ItemGroup>

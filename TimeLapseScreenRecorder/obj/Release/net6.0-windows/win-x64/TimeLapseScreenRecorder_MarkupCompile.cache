@@ -1,5 +1,5 @@
 ﻿TimeLapseScreenRecorder
-
+1.0.0.0
 
 winexe
 C#
@@ -10,11 +10,11 @@ none
 false
 TRACE;RELEASE;NET;NET6_0;NETCOREAPP
 D:\Workspace\Chaos\TimeLapseScreenRecording.worktrees\delayed-screen-capture-software\TimeLapseScreenRecorder\App.xaml
-11407045341
+21774102654
 
-4207884976
+5-1912938988
 2031264551735
-MainWindow.xaml;
+HelpWindow.xaml;MainWindow.xaml;
 
 False
 
