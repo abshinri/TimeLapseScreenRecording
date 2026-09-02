@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Threading;
@@ -831,10 +833,25 @@ namespace TimeLapseScreenRecorder
                 return;
             }
 
-            var files = GetSupportedImageFiles(folder).OrderBy(file => file, StringComparer.OrdinalIgnoreCase).ToList();
+            var frameSet = GetOrderedVideoFrameFiles(folder);
+            var files = frameSet.ValidFiles;
+            if (frameSet.InvalidFiles.Count > 0)
+            {
+                VideoLogText.AppendText($"已忽略 {frameSet.InvalidFiles.Count} 个不符合规则或无法读取的图片文件：\n");
+                foreach (var invalidFile in frameSet.InvalidFiles.Take(10))
+                {
+                    VideoLogText.AppendText($"- {Path.GetFileName(invalidFile)}\n");
+                }
+
+                if (frameSet.InvalidFiles.Count > 10)
+                {
+                    VideoLogText.AppendText($"... 还有 {frameSet.InvalidFiles.Count - 10} 个已忽略\n");
+                }
+            }
+
             if (files.Count == 0)
             {
-                VideoLogText.AppendText("错误：指定目录中没有可合成的视频图片。\n");
+                VideoLogText.AppendText("错误：指定目录中没有符合命名规则的可合成视频图片。\n");
                 return;
             }
 
@@ -915,6 +932,80 @@ namespace TimeLapseScreenRecorder
             }
         }
 
+        private static VideoFrameFileSet GetOrderedVideoFrameFiles(string folder)
+        {
+            var supportedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".bmp",
+                ".gif",
+                ".tif",
+                ".tiff"
+            };
+
+            var validFiles = new List<string>();
+            var invalidFiles = new List<string>();
+
+            foreach (var file in Directory.EnumerateFiles(folder))
+            {
+                if (!supportedExtensions.Contains(Path.GetExtension(file)))
+                {
+                    continue;
+                }
+
+                if (!IsReadableImageFile(file) || TryParseFrameTimestamp(file) is null)
+                {
+                    invalidFiles.Add(file);
+                    continue;
+                }
+
+                validFiles.Add(file);
+            }
+
+            var orderedFiles = validFiles
+                .Select(file => new
+                {
+                    File = file,
+                    SortKey = TryParseFrameTimestamp(file) ?? DateTime.MinValue
+                })
+                .OrderBy(item => item.SortKey)
+                .ThenBy(item => item.File, StringComparer.OrdinalIgnoreCase)
+                .Select(item => item.File)
+                .ToList();
+
+            return new VideoFrameFileSet(orderedFiles, invalidFiles);
+        }
+
+        private static bool IsReadableImageFile(string file)
+        {
+            try
+            {
+                using var image = Image.FromFile(file);
+                return image.Width > 0 && image.Height > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static DateTime? TryParseFrameTimestamp(string file)
+        {
+            var stem = Path.GetFileNameWithoutExtension(file);
+            var match = Regex.Match(stem, @"^(?<stamp>\d{8}_\d{6}\d{3})(?<suffix>.*)$");
+            if (!match.Success)
+            {
+                return null;
+            }
+
+            var stampText = match.Groups["stamp"].Value;
+            return DateTime.TryParseExact(stampText, "yyyyMMdd_HHmmssfff", CultureInfo.InvariantCulture, DateTimeStyles.None, out var timestamp)
+                ? timestamp
+                : null;
+        }
+
         private static string CreateImageSequence(IList<string> files)
         {
             var tempDirectory = Path.Combine(Path.GetTempPath(), "TimeLapseScreenRecorder", Guid.NewGuid().ToString("N"));
@@ -924,7 +1015,16 @@ namespace TimeLapseScreenRecorder
             {
                 var source = files[i];
                 var target = Path.Combine(tempDirectory, $"{(i + 1):D4}.png");
-                File.Copy(source, target, overwrite: true);
+
+                try
+                {
+                    using var sourceImage = Image.FromFile(source);
+                    sourceImage.Save(target, ImageFormat.Png);
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException($"无法读取或转换帧图片：{Path.GetFileName(source)}，原因：{ex.Message}", ex);
+                }
             }
 
             return tempDirectory;
@@ -986,6 +1086,18 @@ namespace TimeLapseScreenRecorder
             }
 
             return null;
+        }
+
+        private sealed class VideoFrameFileSet
+        {
+            public VideoFrameFileSet(List<string> validFiles, List<string> invalidFiles)
+            {
+                ValidFiles = validFiles;
+                InvalidFiles = invalidFiles;
+            }
+
+            public List<string> ValidFiles { get; }
+            public List<string> InvalidFiles { get; }
         }
 
         private sealed class ScreenInfo
